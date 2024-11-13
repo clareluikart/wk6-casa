@@ -14,16 +14,131 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
-```{r cars}
-summary(cars)
+```{r}
+library(spatstat)
+library(here)
+library(sp)
+library(tmap)
+library(sf)
+library(tmaptools)
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
+First, get the London Borough Boundaries
 
 ```{r pressure, echo=FALSE}
 plot(pressure)
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+LondonBoroughs <- st_read(here::here("statistical-gis-boundaries-london", "ESRI", "London_Borough_Excluding_MHW.shp"))
+```
+Pull out London using the str_detect() function from the stringr package in combination with filter() from dplyr (again!). We will look for the bit of the district code that relates to London (E09) from the ‘lad15cd’ column data frame of our sf object.
+```{r}
+library(stringr)
+BoroughMap <- LondonBoroughs %>%
+  dplyr::filter(str_detect(GSS_CODE, "^E09"))%>%
+  st_transform(., 27700)
+
+qtm(BoroughMap)
+```
+Now get the location of all Blue Plaques in the City
+
+```{r}
+BluePlaques <- st_read("https://s3.eu-west-2.amazonaws.com/openplaques/open-plaques-london-2018-04-08.geojson") %>%
+  st_set_crs(4326) %>%
+  st_transform(27700)
+```
+```{r}
+summary(BluePlaques)
+```
+```{r}
+#plot the blue plaques in the city
+tmap_mode("plot")
+tm_shape(BoroughMap) +
+  tm_polygons(col = NA, alpha = 0.5) +
+tm_shape(BluePlaques) +
+  tm_dots(col = "blue")
+```
+```{r}
+#remove duplicates
+library(tidyverse)
+
+library(sf)
+BluePlaques <- distinct(BluePlaques)
+```
+```{r}
+BluePlaquesSub <- BluePlaques[BoroughMap,]
+#check to see that they've been removed
+tmap_mode("plot")
+tm_shape(BoroughMap) +
+  tm_polygons(col = NA, alpha = 0.5) +
+tm_shape(BluePlaquesSub) +
+  tm_dots(col = "blue")
+```
+
+```{r}
+# add sparse=false to get the complete matrix.
+intersect_indices <-st_intersects(BoroughMap, BluePlaques)
+```
+
+```{r}
+#extract the borough
+
+# select by attribute
+Harrow <- BoroughMap %>%
+  filter(., NAME=="Harrow")
+
+#Check to see that the correct borough has been pulled out
+tm_shape(Harrow) +
+  tm_polygons(col = NA, alpha = 0.5)
+```
+
+```{r}
+#clip the data to our single borough
+BluePlaquesSub <- BluePlaques[Harrow,]
+#check that it's worked
+tmap_mode("plot")
+```
+
+```{r}
+tm_shape(Harrow) +
+  tm_polygons(col = NA, alpha = 0.5) +
+tm_shape(BluePlaquesSub) +
+  tm_dots(col = "blue")
+```
+
+```{r}
+#now set a window as the borough boundary
+window <- as.owin(Harrow)
+plot(window)
+```
+
+```{r}
+#create a sp object
+BluePlaquesSub<- BluePlaquesSub %>%
+  as(., 'Spatial')
+#create a ppp object
+BluePlaquesSub.ppp <- ppp(x=BluePlaquesSub@coords[,1],
+                          y=BluePlaquesSub@coords[,2],
+                          window=window)
+```
+```{r}
+BluePlaquesSub@coords[,1]
+```
+
+```{r}
+BluePlaquesSub.ppp %>%
+  plot(.,pch=16,cex=0.5, 
+       main="Blue Plaques Harrow")
+```
+```{r}
+BluePlaquesSub.ppp %>%
+  density(., sigma=500) %>%
+  plot()
+```
+```{r}
+
+```
+
